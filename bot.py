@@ -15,11 +15,12 @@ bot = commands.Bot(command_prefix="!", intents=intents)
 TOTAL_CALORIES = 2000
 
 class Stats:
-    def __init__(self, total_calories, current_calories, exercise_calories, steps, eaten):
+    def __init__(self, total_calories, current_calories, exercise_calories, steps, exercise, eaten):
         self.total_calories = total_calories
         self.current_calories = current_calories
         self.exercise_calories = exercise_calories
         self.steps = steps
+        self.exercise = exercise
         self.eaten = eaten
     
     def reset(self):
@@ -27,18 +28,36 @@ class Stats:
         self.current_calories = TOTAL_CALORIES
         self.exercise_calories = 0
         self.steps = 0
+        self.exercise = []
         self.eaten = []
 
     def get_latest(self, msg):
         if msg is None:
             self.reset()
             return
+        
         last_msg = msg.content
-        self.total_calories = int(last_msg.split(",")[0])
-        self.current_calories = int(last_msg.split(",")[1])
-        self.exercise_calories = int(last_msg.split(",")[2])
-        self.steps = int(last_msg.split(",")[3])
-        self.eaten = last_msg.split(",")[4:]
+        separator = "; "
+
+        self.total_calories = int(last_msg.split(separator)[0])
+        self.current_calories = int(last_msg.split(separator)[1])
+        self.exercise_calories = int(last_msg.split(separator)[2])
+        self.steps = int(last_msg.split(separator)[3])
+
+        eaten = last_msg.split(separator)[5].split(":", 1)
+        if len(eaten) > 1:
+            self.eaten = [item.strip() for item in eaten[1].split(",") if item.strip()]
+        else:
+            self.eaten = []
+
+        exercise = last_msg.split(separator)[4].split(":", 1)
+        if len(exercise) > 1:
+            self.exercise = [item.strip() for item in exercise[1].split(",") if item.strip()]
+        else:
+            self.exercise = []
+
+    async def update_tracking(self, tracking_channel):
+        await tracking_channel.send(f"{self.total_calories}; {self.current_calories}; {self.exercise_calories}; {self.steps};  exercise: "+ ",".join(str(x) for x in self.exercise) + "; eaten: " + ",".join(str(x) for x in self.eaten))
 
 
 @bot.event
@@ -52,7 +71,7 @@ async def empty(ctx):
     daily = bot.get_channel(info.daily_channel)
     tracking = bot.get_channel(info.tracking_channel)
 
-    stats = Stats(TOTAL_CALORIES, TOTAL_CALORIES, 0, 0, [])
+    stats = Stats(TOTAL_CALORIES, TOTAL_CALORIES, 0, 0, [], [])
     last_msg = await tracking.fetch_message(tracking.last_message_id)
     stats.get_latest(last_msg)
 
@@ -60,23 +79,21 @@ async def empty(ctx):
     long_term = bot.get_channel(info.long_term_tracking_channel)
     last_msg = await long_term.fetch_message(long_term.last_message_id)
 
-    print(last_msg)
     if last_msg and last_msg.embeds:
         embed = last_msg.embeds[0]
         title = embed.title
         description = embed.description
         
     if len(last_msg.content) < 30:
-        new_description = f"{description}\n {TOTAL_CALORIES - stats.current_calories}/{TOTAL_CALORIES}\n{stats.exercise_calories} calories burned\n{stats.steps} steps\nEaten: " + ", ".join(str(x) for x in stats.eaten)
-        print(new_description)
+        new_description = f"{description}\n {TOTAL_CALORIES - stats.current_calories}/{TOTAL_CALORIES}\n{stats.exercise_calories} calories burned\n{stats.steps} steps\nExcercise: " + ", ".join(str(x) for x in stats.exercise) + "\nEaten: " + ", ".join(str(x) for x in stats.eaten)
         new_embed = discord.Embed(title=title, description=new_description)
         await last_msg.edit(embed=new_embed)
     await daily.purge()
     await tracking.purge()
 
-    stats = Stats(TOTAL_CALORIES, TOTAL_CALORIES, 0, 0, [])
+    stats = Stats(TOTAL_CALORIES, TOTAL_CALORIES, 0, 0, [], [])
 
-    await tracking.send(f"{stats.total_calories},{stats.current_calories},{stats.exercise_calories},{stats.steps}," + ",".join(str(x) for x in stats.eaten))
+    await stats.update_tracking(tracking)
     print("Resetted")
     return
 
@@ -89,6 +106,33 @@ async def weight(ctx, weight):
     embed = discord.Embed(title=f"{today_str}", description=f"weight: {weight}")
     await long_term.send(embed=embed)
     return
+
+@bot.command()
+async def exercise(ctx, calories, type_):
+    daily = bot.get_channel(info.daily_channel)
+    tracking = bot.get_channel(info.tracking_channel)
+
+    stats = Stats(TOTAL_CALORIES, TOTAL_CALORIES, 0, 0, [], [])
+    msg = await tracking.fetch_message(tracking.last_message_id)
+    stats.get_latest(msg)
+
+    stats.current_calories += int(calories)
+    stats.exercise_calories += int(calories)
+    stats.exercise.append((type_, calories))
+    await stats.update_tracking(tracking)
+
+@bot.command()
+async def steps(ctx, steps):
+    daily = bot.get_channel(info.daily_channel)
+    tracking = bot.get_channel(info.tracking_channel)
+
+    stats = Stats(TOTAL_CALORIES, TOTAL_CALORIES, 0, 0, [], [])
+    msg = await tracking.fetch_message(tracking.last_message_id)
+    stats.get_latest(msg)
+
+    stats.steps = int(steps)
+
+    await stats.update_tracking(tracking)
 
 
 @bot.event
@@ -112,7 +156,7 @@ async def on_message(message):
         cont = recipe_msg.content.split(",")
         recipes[cont[0]] = (cont[1], cont[2])    
 
-    stats = Stats(TOTAL_CALORIES, TOTAL_CALORIES, 0, 0, [])
+    stats = Stats(TOTAL_CALORIES, TOTAL_CALORIES, 0, 0, [], [])
 
     msg = await tracking.fetch_message(tracking.last_message_id)
     stats.get_latest(msg)
@@ -122,6 +166,6 @@ async def on_message(message):
         stats.current_calories -= int(recipes[message.content][0])
         stats.eaten.append((recipes[message.content][1], recipes[message.content][0]))
 
-        await tracking.send(f"{stats.total_calories},{stats.current_calories},{stats.exercise_calories},{stats.steps}," + ",".join(str(x) for x in stats.eaten))
+        await stats.update_tracking(tracking)
 
 bot.run(secret.TOKEN)
