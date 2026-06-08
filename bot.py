@@ -52,6 +52,25 @@ async def empty(ctx):
     daily = bot.get_channel(info.daily_channel)
     tracking = bot.get_channel(info.tracking_channel)
 
+    stats = Stats(TOTAL_CALORIES, TOTAL_CALORIES, 0, 0, [])
+    last_msg = await tracking.fetch_message(tracking.last_message_id)
+    stats.get_latest(last_msg)
+
+
+    long_term = bot.get_channel(info.long_term_tracking_channel)
+    last_msg = await long_term.fetch_message(long_term.last_message_id)
+
+    print(last_msg)
+    if last_msg and last_msg.embeds:
+        embed = last_msg.embeds[0]
+        title = embed.title
+        description = embed.description
+        
+    if len(last_msg.content) < 30:
+        new_description = f"{description}\n {TOTAL_CALORIES - stats.current_calories}/{TOTAL_CALORIES}\n{stats.exercise_calories} calories burned\n{stats.steps} steps\nEaten: " + ", ".join(str(x) for x in stats.eaten)
+        print(new_description)
+        new_embed = discord.Embed(title=title, description=new_description)
+        await last_msg.edit(embed=new_embed)
     await daily.purge()
     await tracking.purge()
 
@@ -87,7 +106,6 @@ async def on_message(message):
     daily = bot.get_channel(info.daily_channel)
     tracking = bot.get_channel(info.tracking_channel)
     recipe = bot.get_channel(info.recipe_channel)
-    long_term = bot.get_channel(info.long_term_tracking_channel)
 
     recipes = {}
     async for recipe_msg in recipe.history(limit=None):
