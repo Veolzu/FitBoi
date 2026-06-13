@@ -64,6 +64,25 @@ class Stats:
 async def on_ready():
     print("The bot is ready!")
 
+@bot.command()
+async def ate(ctx, *, arg):
+    try:
+        calories, food = arg.split(" ", 1)
+    except ValueError:
+        await ctx.send("Please provide both food name and calories.")
+        return
+
+    daily = bot.get_channel(info.daily_channel)
+    tracking = bot.get_channel(info.tracking_channel)
+
+    stats = Stats(TOTAL_CALORIES, TOTAL_CALORIES, 0, 0, [], [])
+    msg = await tracking.fetch_message(tracking.last_message_id)
+    stats.get_latest(msg)
+
+    stats.current_calories -= int(calories)
+    stats.eaten.append((food, calories))
+    await stats.update_tracking(tracking)
+
 
 @bot.command()
 async def empty(ctx):
@@ -77,17 +96,22 @@ async def empty(ctx):
 
 
     long_term = bot.get_channel(info.long_term_tracking_channel)
-    last_msg = await long_term.fetch_message(long_term.last_message_id)
+    try:
+        last_msg = await long_term.fetch_message(long_term.last_message_id)
+    except:
+        last_msg = None
 
     if last_msg and last_msg.embeds:
         embed = last_msg.embeds[0]
         title = embed.title
         description = embed.description
         
-    if len(last_msg.content) < 30:
-        new_description = f"{description}\n {TOTAL_CALORIES - stats.current_calories}/{TOTAL_CALORIES}\n{stats.exercise_calories} calories burned\n{stats.steps} steps\nExcercise: " + ", ".join(str(x) for x in stats.exercise) + "\nEaten: " + ", ".join(str(x) for x in stats.eaten)
-        new_embed = discord.Embed(title=title, description=new_description)
-        await last_msg.edit(embed=new_embed)
+        if len(description) < 30:
+            print("Updating long term tracking")
+            new_description = f"{description}\n {TOTAL_CALORIES - stats.current_calories+stats.exercise_calories}/{TOTAL_CALORIES+stats.exercise_calories}\n{stats.exercise_calories} calories burned\n{stats.steps} steps\nExcercise: " + "\n".join(str(x) for x in stats.exercise) + "\nEaten: " + "\n".join(str(x) for x in stats.eaten)
+            new_embed = discord.Embed(title=title, description=new_description)
+            await last_msg.edit(embed=new_embed)
+
     await daily.purge()
     await tracking.purge()
 
@@ -108,7 +132,12 @@ async def weight(ctx, weight):
     return
 
 @bot.command()
-async def exercise(ctx, calories, type_):
+async def move(ctx, *, arg):
+    try:
+        calories, type_ = arg.split(" ", 1)
+    except ValueError:
+        await ctx.send("Please provide both exercise type and calories burned.")
+        return
     daily = bot.get_channel(info.daily_channel)
     tracking = bot.get_channel(info.tracking_channel)
 
